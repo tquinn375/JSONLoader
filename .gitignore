@@ -2,3 +2,9 @@
 /data/uploads/*
 !/data/uploads/.gitkeep
 /logs/*.log
+
+# FileImportMonitor (C#)
+FileImportMonitor/**/bin/
+FileImportMonitor/**/obj/
+FileImportMonitor/**/Logs/
+FileImportMonitor/*.user
