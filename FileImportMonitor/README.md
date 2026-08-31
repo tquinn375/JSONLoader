@@ -52,7 +52,9 @@ FileImportMonitor/
    the appropriate ODBC driver.
 
 3. **Edit `FileImportMonitor/App.config`:**
-   - `connectionStrings/ImportValidationDb` — your ODBC DSN/credentials.
+   - `connectionStrings/ImportValidationDb` — your ODBC DSN and user id.
+     **Do not put `Pwd=` here** — the password is supplied at runtime
+     instead (see "Supplying the database password" below).
    - `WatchDirectory` — the folder to monitor for incoming files.
    - `ImportDirectory` — where validated files are moved
      (`D:\IMPORT` by default).
@@ -93,11 +95,34 @@ FileImportMonitor/
    Task Scheduler (on logon, with restart-on-failure) or wrap it as a
    Windows Service.
 
+## Supplying the database password
+
+`App.config`'s `ImportValidationDb` connection string intentionally omits
+`Pwd=`. The password is supplied at runtime instead and merged into the
+connection string in memory (via `OdbcConnectionStringBuilder`, so special
+characters in the password are escaped correctly):
+
+```
+FileImportMonitor.exe --password "the_password"
+FileImportMonitor.exe -p "the_password"
+```
+
+If the argument is omitted and a console is attached, you're prompted for
+it interactively with masked (`*`) input instead. That's the safer choice
+for a one-off interactive run, since command-line arguments can end up
+visible in shell history or process listings. For unattended use (Task
+Scheduler, a service wrapper), pass `--password` in the task's argument
+list; if the credential needs stronger protection than that, store it in
+a secrets manager / encrypted file the scheduled task decrypts and passes
+in instead, and adapt `ResolveDbPassword` in `Program.cs` to read from
+there.
+
+If neither `--password`/`-p` is given nor a console is attached (e.g.
+running non-interactively with input redirected), the app exits with an
+error rather than hanging on a prompt nobody can answer.
+
 ## Notes
 
-- The connection string in `App.config` is a plain-text credential —
-  restrict file permissions on the deployed `App.config`/`.exe.config`
-  accordingly, the same as any other service credential.
 - Table/column names from `App.config` are trusted, operator-supplied
   configuration (not end-user input), so they're interpolated directly
   into the generated SQL; the `MaskActiveValue` comparison value is
