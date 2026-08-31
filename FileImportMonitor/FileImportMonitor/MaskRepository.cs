@@ -13,15 +13,23 @@ namespace FileImportMonitor
     internal sealed class MaskRepository
     {
         private readonly AppSettings _settings;
+        private readonly string _connectionString;
         private readonly Logger _logger;
         private readonly object _cacheLock = new object();
 
         private List<string> _cachedMasks = new List<string>();
         private DateTime _lastRefreshUtc = DateTime.MinValue;
 
-        public MaskRepository(AppSettings settings, Logger logger)
+        /// <summary>
+        /// <paramref name="connectionString"/> is the fully-resolved ODBC
+        /// connection string (i.e. <see cref="AppSettings.BuildConnectionString"/>
+        /// already applied) — the password is merged in once at startup
+        /// rather than re-read on every refresh.
+        /// </summary>
+        public MaskRepository(AppSettings settings, string connectionString, Logger logger)
         {
             _settings = settings;
+            _connectionString = connectionString;
             _logger = logger;
         }
 
@@ -54,7 +62,7 @@ namespace FileImportMonitor
             {
                 var masks = new List<string>();
 
-                using (var connection = new OdbcConnection(_settings.ConnectionString))
+                using (var connection = new OdbcConnection(_connectionString))
                 {
                     connection.Open();
 

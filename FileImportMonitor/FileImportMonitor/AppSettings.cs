@@ -1,5 +1,6 @@
 using System;
 using System.Configuration;
+using System.Data.Odbc;
 using System.IO;
 
 namespace FileImportMonitor
@@ -9,7 +10,12 @@ namespace FileImportMonitor
     /// </summary>
     internal sealed class AppSettings
     {
-        public string ConnectionString { get; }
+        /// <summary>
+        /// The ODBC connection string from App.config. It is expected NOT
+        /// to carry a password — that's supplied separately at runtime and
+        /// merged in via <see cref="BuildConnectionString"/>.
+        /// </summary>
+        public string ConnectionStringTemplate { get; }
         public string WatchDirectory { get; }
         public string ImportDirectory { get; }
         public string RejectedDirectory { get; }
@@ -23,7 +29,7 @@ namespace FileImportMonitor
         public string LogFilePath { get; }
 
         private AppSettings(
-            string connectionString,
+            string connectionStringTemplate,
             string watchDirectory,
             string importDirectory,
             string rejectedDirectory,
@@ -36,7 +42,7 @@ namespace FileImportMonitor
             bool processExistingFilesOnStartup,
             string logFilePath)
         {
-            ConnectionString = connectionString;
+            ConnectionStringTemplate = connectionStringTemplate;
             WatchDirectory = watchDirectory;
             ImportDirectory = importDirectory;
             RejectedDirectory = rejectedDirectory;
@@ -110,6 +116,27 @@ namespace FileImportMonitor
                 fileStabilizationTimeoutSeconds,
                 processExistingFilesOnStartup,
                 logFilePath);
+        }
+
+        /// <summary>
+        /// Merges the runtime-supplied database password into
+        /// <see cref="ConnectionStringTemplate"/>, overwriting any "Pwd"
+        /// the template already carries. Using OdbcConnectionStringBuilder
+        /// (rather than string concatenation) makes sure a password
+        /// containing ';', '=', quotes, etc. is escaped correctly.
+        /// </summary>
+        public string BuildConnectionString(string password)
+        {
+            if (string.IsNullOrEmpty(password))
+            {
+                throw new ArgumentException("Database password must not be empty.", nameof(password));
+            }
+
+            var builder = new OdbcConnectionStringBuilder(ConnectionStringTemplate)
+            {
+                ["Pwd"] = password
+            };
+            return builder.ConnectionString;
         }
 
         private static string RequireSetting(string key)
