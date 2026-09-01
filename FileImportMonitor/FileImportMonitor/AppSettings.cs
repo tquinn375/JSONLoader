@@ -1,56 +1,37 @@
 using System;
+using System.Collections.Generic;
 using System.Configuration;
-using System.Data.Odbc;
 using System.IO;
+using System.Linq;
 
 namespace FileImportMonitor
 {
     /// <summary>
-    /// Strongly-typed view over App.config's &lt;appSettings&gt; / &lt;connectionStrings&gt;.
+    /// Strongly-typed view over App.config's &lt;appSettings&gt;.
     /// </summary>
     internal sealed class AppSettings
     {
-        /// <summary>
-        /// The ODBC connection string from App.config. It is expected NOT
-        /// to carry a password — that's supplied separately at runtime and
-        /// merged in via <see cref="BuildConnectionString"/>.
-        /// </summary>
-        public string ConnectionStringTemplate { get; }
         public string WatchDirectory { get; }
         public string ImportDirectory { get; }
         public string RejectedDirectory { get; }
-        public string MaskTableName { get; }
-        public string MaskColumnName { get; }
-        public string MaskActiveColumnName { get; }
-        public string MaskActiveValue { get; }
-        public int MaskRefreshIntervalSeconds { get; }
+        public IReadOnlyList<string> ValidFileMasks { get; }
         public int FileStabilizationTimeoutSeconds { get; }
         public bool ProcessExistingFilesOnStartup { get; }
         public string LogFilePath { get; }
 
         private AppSettings(
-            string connectionStringTemplate,
             string watchDirectory,
             string importDirectory,
             string rejectedDirectory,
-            string maskTableName,
-            string maskColumnName,
-            string maskActiveColumnName,
-            string maskActiveValue,
-            int maskRefreshIntervalSeconds,
+            IReadOnlyList<string> validFileMasks,
             int fileStabilizationTimeoutSeconds,
             bool processExistingFilesOnStartup,
             string logFilePath)
         {
-            ConnectionStringTemplate = connectionStringTemplate;
             WatchDirectory = watchDirectory;
             ImportDirectory = importDirectory;
             RejectedDirectory = rejectedDirectory;
-            MaskTableName = maskTableName;
-            MaskColumnName = maskColumnName;
-            MaskActiveColumnName = maskActiveColumnName;
-            MaskActiveValue = maskActiveValue;
-            MaskRefreshIntervalSeconds = maskRefreshIntervalSeconds;
+            ValidFileMasks = validFileMasks;
             FileStabilizationTimeoutSeconds = fileStabilizationTimeoutSeconds;
             ProcessExistingFilesOnStartup = processExistingFilesOnStartup;
             LogFilePath = logFilePath;
@@ -62,33 +43,12 @@ namespace FileImportMonitor
         /// </summary>
         public static AppSettings Load()
         {
-            var connectionStringSetting = ConfigurationManager.ConnectionStrings["ImportValidationDb"];
-            if (connectionStringSetting == null || string.IsNullOrWhiteSpace(connectionStringSetting.ConnectionString))
-            {
-                throw new ConfigurationErrorsException(
-                    "Missing connection string 'ImportValidationDb' in App.config.");
-            }
-
             string watchDirectory = RequireSetting("WatchDirectory");
             string importDirectory = RequireSetting("ImportDirectory");
             string rejectedDirectory = ConfigurationManager.AppSettings["RejectedDirectory"] ?? string.Empty;
 
-            string maskTableName = ConfigurationManager.AppSettings["MaskTableName"];
-            if (string.IsNullOrWhiteSpace(maskTableName))
-            {
-                maskTableName = "LOCAL_IMPORTFILEVALIDMASKS";
-            }
+            IReadOnlyList<string> validFileMasks = ReadMasks();
 
-            string maskColumnName = ConfigurationManager.AppSettings["MaskColumnName"];
-            if (string.IsNullOrWhiteSpace(maskColumnName))
-            {
-                maskColumnName = "FILEMASK";
-            }
-
-            string maskActiveColumnName = ConfigurationManager.AppSettings["MaskActiveColumnName"] ?? string.Empty;
-            string maskActiveValue = ConfigurationManager.AppSettings["MaskActiveValue"] ?? "Y";
-
-            int maskRefreshIntervalSeconds = ReadInt("MaskRefreshIntervalSeconds", 60);
             int fileStabilizationTimeoutSeconds = ReadInt("FileStabilizationTimeoutSeconds", 30);
             bool processExistingFilesOnStartup = ReadBool("ProcessExistingFilesOnStartup", true);
 
@@ -104,39 +64,28 @@ namespace FileImportMonitor
             }
 
             return new AppSettings(
-                connectionStringSetting.ConnectionString,
                 watchDirectory,
                 importDirectory,
                 rejectedDirectory,
-                maskTableName,
-                maskColumnName,
-                maskActiveColumnName,
-                maskActiveValue,
-                maskRefreshIntervalSeconds,
+                validFileMasks,
                 fileStabilizationTimeoutSeconds,
                 processExistingFilesOnStartup,
                 logFilePath);
         }
 
         /// <summary>
-        /// Merges the runtime-supplied database password into
-        /// <see cref="ConnectionStringTemplate"/>, overwriting any "Pwd"
-        /// the template already carries. Using OdbcConnectionStringBuilder
-        /// (rather than string concatenation) makes sure a password
-        /// containing ';', '=', quotes, etc. is escaped correctly.
+        /// Reads the semicolon-delimited list of authorized filename masks
+        /// from the "ValidFileMasks" appSetting, e.g.
+        /// "INV*.TXT;ORD???.CSV;*.JSON".
         /// </summary>
-        public string BuildConnectionString(string password)
+        private static IReadOnlyList<string> ReadMasks()
         {
-            if (string.IsNullOrEmpty(password))
-            {
-                throw new ArgumentException("Database password must not be empty.", nameof(password));
-            }
+            string raw = ConfigurationManager.AppSettings["ValidFileMasks"] ?? string.Empty;
 
-            var builder = new OdbcConnectionStringBuilder(ConnectionStringTemplate)
-            {
-                ["Pwd"] = password
-            };
-            return builder.ConnectionString;
+            return raw.Split(';')
+                .Select(mask => mask.Trim())
+                .Where(mask => mask.Length > 0)
+                .ToList();
         }
 
         private static string RequireSetting(string key)

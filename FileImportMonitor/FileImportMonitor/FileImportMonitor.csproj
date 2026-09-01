@@ -35,7 +35,6 @@
   <ItemGroup>
     <Reference Include="System" />
     <Reference Include="System.Core" />
-    <Reference Include="System.Data" />
     <Reference Include="System.Configuration" />
     <Reference Include="System.Xml" />
   </ItemGroup>
@@ -44,7 +43,6 @@
     <Compile Include="AppSettings.cs" />
     <Compile Include="Logger.cs" />
     <Compile Include="FileNameMatcher.cs" />
-    <Compile Include="MaskRepository.cs" />
     <Compile Include="FileImportProcessor.cs" />
     <Compile Include="DirectoryMonitor.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
