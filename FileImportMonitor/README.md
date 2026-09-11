@@ -1,9 +1,9 @@
 # FileImportMonitor
 
 A Visual C# (.NET Framework 4.8) console application that watches a
-directory for newly-arrived files, validates each file name against masks
-stored in an ODBC-accessible `LOCAL_IMPORTFILEVALIDMASKS` table, and moves
-files that match into `D:\IMPORT` (configurable).
+directory for newly-arrived files, validates each file name against a list
+of authorized masks configured in `App.config`, and moves files that match
+into `D:\IMPORT` (configurable).
 
 ## How it works
 
@@ -11,19 +11,19 @@ files that match into `D:\IMPORT` (configurable).
    in the watched directory, the app waits for the file to stop being
    written to (it retries opening it exclusively until that succeeds or a
    timeout is hit), so partially-copied files aren't processed early.
-2. It loads the list of valid filename masks from
-   `LOCAL_IMPORTFILEVALIDMASKS` over ODBC (cached in memory and refreshed on
-   an interval, not queried per file).
-3. Each mask is a DOS-style wildcard (`*` and `?`), matched
+2. Each configured mask is a DOS-style wildcard (`*` and `?`), matched
    case-insensitively against the file name, e.g. `INV*.TXT`, `ORD???.CSV`.
-4. If the file name matches any mask, the file is moved into
+3. If the file name matches any mask, the file is moved into
    `ImportDirectory` (`D:\IMPORT` by default). If a same-named file already
    exists there, a timestamp is appended so nothing is overwritten.
-5. If the file name matches no mask, it's left in place (or moved to
+4. If the file name matches no mask, it's left in place (or moved to
    `RejectedDirectory`, if one is configured) and logged as a warning.
+5. The app runs for `RunDurationMinutes` (default 120 = 2 hours) and then
+   exits cleanly on its own — see "Running as a scheduled task" below.
 
-All activity is written to the console and to a rolling log file
-(`Logs\FileImportMonitor.log` by default).
+All activity is written to the console and to a log file. Each run gets
+its own timestamped file (e.g. `Logs\FileImportMonitor_20260911_153045.log`)
+so a scheduled task's earlier runs are never overwritten.
 
 ## Project layout
 
@@ -31,13 +31,12 @@ All activity is written to the console and to a rolling log file
 FileImportMonitor.sln
 FileImportMonitor/
   FileImportMonitor.csproj
-  App.config              Configuration: connection string, directories, table/column names
+  App.config              Configuration: directories, valid file masks
   Program.cs               Entry point / startup / shutdown
   AppSettings.cs            Reads and validates App.config
   Logger.cs                 Console + file logging
   DirectoryMonitor.cs       FileSystemWatcher wrapper with debouncing
   FileImportProcessor.cs    Waits for file to stabilize, validates, moves
-  MaskRepository.cs         Loads/caches masks from ODBC
   FileNameMatcher.cs        Wildcard-to-regex matching
 ```
 
@@ -46,59 +45,59 @@ FileImportMonitor/
 1. **Open `FileImportMonitor.sln` in Visual Studio** (2019+ recommended;
    the project targets .NET Framework 4.8).
 
-2. **Create an ODBC data source** (Windows ODBC Data Source Administrator,
-   `odbcad32.exe`) for the database that hosts
-   `LOCAL_IMPORTFILEVALIDMASKS`, or use a DSN-less connection string with
-   the appropriate ODBC driver.
-
-3. **Edit `FileImportMonitor/App.config`:**
-   - `connectionStrings/ImportValidationDb` — your ODBC DSN/credentials.
+2. **Edit `FileImportMonitor/App.config`:**
    - `WatchDirectory` — the folder to monitor for incoming files.
    - `ImportDirectory` — where validated files are moved
      (`D:\IMPORT` by default).
    - `RejectedDirectory` — optional; where non-matching files are moved.
      Leave blank to leave them in `WatchDirectory` instead.
-   - `MaskTableName` / `MaskColumnName` — defaults to
-     `LOCAL_IMPORTFILEVALIDMASKS` / `FILEMASK`. Change `MaskColumnName` to
-     match your actual column name if it differs.
-   - `MaskActiveColumnName` / `MaskActiveValue` — optional; if your table
-     has an active/enabled flag column, set the column name here (e.g.
-     `ACTIVE`) so only rows where it equals `MaskActiveValue` (default
-     `Y`) are used. Leave `MaskActiveColumnName` blank to use every row.
-   - `MaskRefreshIntervalSeconds` — how often the mask list is re-read
-     from the database (default 60s).
+   - `ValidFileMasks` — semicolon-delimited list of authorized filename
+     masks, e.g. `INV*.TXT;ORD???.CSV;*.JSON`. A file is only moved into
+     `ImportDirectory` if its name matches one of these.
    - `FileStabilizationTimeoutSeconds` — how long to wait for a file to
      finish being written before giving up on it (default 30s).
    - `ProcessExistingFilesOnStartup` — set to `false` if you don't want
      files already sitting in `WatchDirectory` processed on startup.
+   - `RunDurationMinutes` — how many minutes the app watches before
+     exiting on its own (default `120`). Ctrl+C still stops it sooner for
+     interactive use.
 
-4. **Expected table shape** — the app runs:
-   ```sql
-   SELECT <MaskColumnName> FROM <MaskTableName>
-   -- plus: WHERE <MaskActiveColumnName> = '<MaskActiveValue>', if configured
-   ```
-   Each row's value is treated as one wildcard mask, e.g.:
+3. **Build and run.** The console window stays open, watching the
+   directory, until either `RunDurationMinutes` elapses or you press
+   Ctrl+C.
 
-   | FILEMASK      |
-   |---------------|
-   | INV*.TXT      |
-   | ORD???.CSV    |
-   | *.JSON        |
+## Running as a scheduled task
 
-   Adjust `MaskTableName`/`MaskColumnName`/`MaskActiveColumnName` in
-   `App.config` if your schema differs — no code changes needed.
+The app is designed to be launched repeatedly by Windows Task Scheduler
+rather than run once and left open:
 
-5. **Build and run.** The console window stays open, watching the
-   directory; press Ctrl+C to stop it. For unattended use, run it under
-   Task Scheduler (on logon, with restart-on-failure) or wrap it as a
-   Windows Service.
+- Each run watches for `RunDurationMinutes` (2 hours by default) and then
+  exits with code `0`.
+- On startup it takes a system-wide named mutex
+  (`Global\FileImportMonitor_SingleInstance`). If another copy already
+  holds it — e.g. the previous scheduled run is still inside its 2-hour
+  window when the next one fires — the new instance logs a warning and
+  exits immediately with code `2`, without touching the watch directory.
+  Only one instance is ever doing work at a time.
+
+Suggested Task Scheduler setup: trigger every 2 hours (matching
+`RunDurationMinutes`, or shorter — the mutex check makes an overlapping
+trigger a safe no-op rather than a second monitor), "Run whether user is
+logged on or not," and *do not* check "If the task is already running,
+then the following rule applies" as a substitute for this — the app's own
+mutex check is what actually guarantees a single instance; Task
+Scheduler's own instance-handling setting can still be left at its default
+since the app self-terminates duplicates either way.
+
+Exit codes: `0` normal completion (duration elapsed or Ctrl+C), `1`
+configuration or unhandled error, `2` another instance was already
+running.
 
 ## Notes
 
-- The connection string in `App.config` is a plain-text credential —
-  restrict file permissions on the deployed `App.config`/`.exe.config`
-  accordingly, the same as any other service credential.
-- Table/column names from `App.config` are trusted, operator-supplied
-  configuration (not end-user input), so they're interpolated directly
-  into the generated SQL; the `MaskActiveValue` comparison value is
-  escaped before use.
+- Masks are read from `App.config` once at startup. To change the
+  authorized mask list, edit `ValidFileMasks` and restart the app.
+- Since each run writes its own timestamped log file, `Logs\` grows
+  unbounded over time (one file per ~2-hour run). Nothing here prunes old
+  logs automatically — clean them up periodically, or ask for a
+  retention/rotation option to be added if that's needed.

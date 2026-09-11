@@ -1,53 +1,43 @@
 using System;
+using System.Collections.Generic;
 using System.Configuration;
 using System.IO;
+using System.Linq;
 
 namespace FileImportMonitor
 {
     /// <summary>
-    /// Strongly-typed view over App.config's &lt;appSettings&gt; / &lt;connectionStrings&gt;.
+    /// Strongly-typed view over App.config's &lt;appSettings&gt;.
     /// </summary>
     internal sealed class AppSettings
     {
-        public string ConnectionString { get; }
         public string WatchDirectory { get; }
         public string ImportDirectory { get; }
         public string RejectedDirectory { get; }
-        public string MaskTableName { get; }
-        public string MaskColumnName { get; }
-        public string MaskActiveColumnName { get; }
-        public string MaskActiveValue { get; }
-        public int MaskRefreshIntervalSeconds { get; }
+        public IReadOnlyList<string> ValidFileMasks { get; }
         public int FileStabilizationTimeoutSeconds { get; }
         public bool ProcessExistingFilesOnStartup { get; }
         public string LogFilePath { get; }
+        public int RunDurationMinutes { get; }
 
         private AppSettings(
-            string connectionString,
             string watchDirectory,
             string importDirectory,
             string rejectedDirectory,
-            string maskTableName,
-            string maskColumnName,
-            string maskActiveColumnName,
-            string maskActiveValue,
-            int maskRefreshIntervalSeconds,
+            IReadOnlyList<string> validFileMasks,
             int fileStabilizationTimeoutSeconds,
             bool processExistingFilesOnStartup,
-            string logFilePath)
+            string logFilePath,
+            int runDurationMinutes)
         {
-            ConnectionString = connectionString;
             WatchDirectory = watchDirectory;
             ImportDirectory = importDirectory;
             RejectedDirectory = rejectedDirectory;
-            MaskTableName = maskTableName;
-            MaskColumnName = maskColumnName;
-            MaskActiveColumnName = maskActiveColumnName;
-            MaskActiveValue = maskActiveValue;
-            MaskRefreshIntervalSeconds = maskRefreshIntervalSeconds;
+            ValidFileMasks = validFileMasks;
             FileStabilizationTimeoutSeconds = fileStabilizationTimeoutSeconds;
             ProcessExistingFilesOnStartup = processExistingFilesOnStartup;
             LogFilePath = logFilePath;
+            RunDurationMinutes = runDurationMinutes;
         }
 
         /// <summary>
@@ -56,33 +46,12 @@ namespace FileImportMonitor
         /// </summary>
         public static AppSettings Load()
         {
-            var connectionStringSetting = ConfigurationManager.ConnectionStrings["ImportValidationDb"];
-            if (connectionStringSetting == null || string.IsNullOrWhiteSpace(connectionStringSetting.ConnectionString))
-            {
-                throw new ConfigurationErrorsException(
-                    "Missing connection string 'ImportValidationDb' in App.config.");
-            }
-
             string watchDirectory = RequireSetting("WatchDirectory");
             string importDirectory = RequireSetting("ImportDirectory");
             string rejectedDirectory = ConfigurationManager.AppSettings["RejectedDirectory"] ?? string.Empty;
 
-            string maskTableName = ConfigurationManager.AppSettings["MaskTableName"];
-            if (string.IsNullOrWhiteSpace(maskTableName))
-            {
-                maskTableName = "LOCAL_IMPORTFILEVALIDMASKS";
-            }
+            IReadOnlyList<string> validFileMasks = ReadMasks();
 
-            string maskColumnName = ConfigurationManager.AppSettings["MaskColumnName"];
-            if (string.IsNullOrWhiteSpace(maskColumnName))
-            {
-                maskColumnName = "FILEMASK";
-            }
-
-            string maskActiveColumnName = ConfigurationManager.AppSettings["MaskActiveColumnName"] ?? string.Empty;
-            string maskActiveValue = ConfigurationManager.AppSettings["MaskActiveValue"] ?? "Y";
-
-            int maskRefreshIntervalSeconds = ReadInt("MaskRefreshIntervalSeconds", 60);
             int fileStabilizationTimeoutSeconds = ReadInt("FileStabilizationTimeoutSeconds", 30);
             bool processExistingFilesOnStartup = ReadBool("ProcessExistingFilesOnStartup", true);
 
@@ -97,19 +66,32 @@ namespace FileImportMonitor
                 logFilePath = Path.Combine(baseDir, logFilePath);
             }
 
+            int runDurationMinutes = ReadInt("RunDurationMinutes", 120);
+
             return new AppSettings(
-                connectionStringSetting.ConnectionString,
                 watchDirectory,
                 importDirectory,
                 rejectedDirectory,
-                maskTableName,
-                maskColumnName,
-                maskActiveColumnName,
-                maskActiveValue,
-                maskRefreshIntervalSeconds,
+                validFileMasks,
                 fileStabilizationTimeoutSeconds,
                 processExistingFilesOnStartup,
-                logFilePath);
+                logFilePath,
+                runDurationMinutes);
+        }
+
+        /// <summary>
+        /// Reads the semicolon-delimited list of authorized filename masks
+        /// from the "ValidFileMasks" appSetting, e.g.
+        /// "INV*.TXT;ORD???.CSV;*.JSON".
+        /// </summary>
+        private static IReadOnlyList<string> ReadMasks()
+        {
+            string raw = ConfigurationManager.AppSettings["ValidFileMasks"] ?? string.Empty;
+
+            return raw.Split(';')
+                .Select(mask => mask.Trim())
+                .Where(mask => mask.Length > 0)
+                .ToList();
         }
 
         private static string RequireSetting(string key)

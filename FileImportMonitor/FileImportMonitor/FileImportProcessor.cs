@@ -11,13 +11,11 @@ namespace FileImportMonitor
     internal sealed class FileImportProcessor
     {
         private readonly AppSettings _settings;
-        private readonly MaskRepository _maskRepository;
         private readonly Logger _logger;
 
-        public FileImportProcessor(AppSettings settings, MaskRepository maskRepository, Logger logger)
+        public FileImportProcessor(AppSettings settings, Logger logger)
         {
             _settings = settings;
-            _maskRepository = maskRepository;
             _logger = logger;
         }
 
@@ -37,10 +35,10 @@ namespace FileImportMonitor
                 return;
             }
 
-            var masks = _maskRepository.GetMasks();
+            var masks = _settings.ValidFileMasks;
             if (masks.Count == 0)
             {
-                _logger.Warn($"No valid masks are configured in {_settings.MaskTableName}; '{fileName}' cannot be validated.");
+                _logger.Warn($"No valid masks are configured in App.config's ValidFileMasks setting; '{fileName}' cannot be validated.");
             }
 
             bool isValid = false;
@@ -62,7 +60,7 @@ namespace FileImportMonitor
             }
             else
             {
-                _logger.Warn($"'{fileName}' did not match any mask in {_settings.MaskTableName}.");
+                _logger.Warn($"'{fileName}' did not match any configured mask.");
 
                 if (!string.IsNullOrWhiteSpace(_settings.RejectedDirectory))
                 {
