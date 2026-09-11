@@ -20,14 +20,37 @@ namespace FileImportMonitor
         private readonly string _logFilePath;
         private readonly object _writeLock = new object();
 
-        public Logger(string logFilePath)
+        /// <summary>The actual, timestamped log file this instance writes to.</summary>
+        public string LogFilePath => _logFilePath;
+
+        /// <summary>
+        /// <paramref name="baseLogFilePath"/> is the configured path (e.g.
+        /// "Logs\FileImportMonitor.log"). A run-start timestamp is inserted
+        /// before the extension so each run gets its own file and earlier
+        /// runs' logs are never overwritten.
+        /// </summary>
+        public Logger(string baseLogFilePath)
         {
-            _logFilePath = logFilePath;
+            _logFilePath = BuildTimestampedPath(baseLogFilePath);
             string directory = Path.GetDirectoryName(_logFilePath);
             if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
             {
                 Directory.CreateDirectory(directory);
             }
+        }
+
+        private static string BuildTimestampedPath(string baseLogFilePath)
+        {
+            string directory = Path.GetDirectoryName(baseLogFilePath);
+            string fileNameWithoutExtension = Path.GetFileNameWithoutExtension(baseLogFilePath);
+            string extension = Path.GetExtension(baseLogFilePath);
+            string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+
+            string timestampedFileName = $"{fileNameWithoutExtension}_{timestamp}{extension}";
+
+            return string.IsNullOrEmpty(directory)
+                ? timestampedFileName
+                : Path.Combine(directory, timestampedFileName);
         }
 
         public void Info(string message) => Write(LogLevel.Info, message);

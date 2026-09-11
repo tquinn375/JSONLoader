@@ -21,8 +21,9 @@ into `D:\IMPORT` (configurable).
 5. The app runs for `RunDurationMinutes` (default 120 = 2 hours) and then
    exits cleanly on its own — see "Running as a scheduled task" below.
 
-All activity is written to the console and to a rolling log file
-(`Logs\FileImportMonitor.log` by default).
+All activity is written to the console and to a log file. Each run gets
+its own timestamped file (e.g. `Logs\FileImportMonitor_20260911_153045.log`)
+so a scheduled task's earlier runs are never overwritten.
 
 ## Project layout
 
@@ -96,3 +97,7 @@ running.
 
 - Masks are read from `App.config` once at startup. To change the
   authorized mask list, edit `ValidFileMasks` and restart the app.
+- Since each run writes its own timestamped log file, `Logs\` grows
+  unbounded over time (one file per ~2-hour run). Nothing here prunes old
+  logs automatically — clean them up periodically, or ask for a
+  retention/rotation option to be added if that's needed.

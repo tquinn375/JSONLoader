@@ -32,6 +32,7 @@ namespace FileImportMonitor
             }
 
             var logger = new Logger(settings.LogFilePath);
+            logger.Info($"Logging this run to '{logger.LogFilePath}'.");
 
             using (Mutex singleInstanceMutex = CreateSingleInstanceMutex(out bool createdNew))
             {
