@@ -18,6 +18,7 @@ namespace FileImportMonitor
         public int FileStabilizationTimeoutSeconds { get; }
         public bool ProcessExistingFilesOnStartup { get; }
         public string LogFilePath { get; }
+        public int RunDurationMinutes { get; }
 
         private AppSettings(
             string watchDirectory,
@@ -26,7 +27,8 @@ namespace FileImportMonitor
             IReadOnlyList<string> validFileMasks,
             int fileStabilizationTimeoutSeconds,
             bool processExistingFilesOnStartup,
-            string logFilePath)
+            string logFilePath,
+            int runDurationMinutes)
         {
             WatchDirectory = watchDirectory;
             ImportDirectory = importDirectory;
@@ -35,6 +37,7 @@ namespace FileImportMonitor
             FileStabilizationTimeoutSeconds = fileStabilizationTimeoutSeconds;
             ProcessExistingFilesOnStartup = processExistingFilesOnStartup;
             LogFilePath = logFilePath;
+            RunDurationMinutes = runDurationMinutes;
         }
 
         /// <summary>
@@ -63,6 +66,8 @@ namespace FileImportMonitor
                 logFilePath = Path.Combine(baseDir, logFilePath);
             }
 
+            int runDurationMinutes = ReadInt("RunDurationMinutes", 120);
+
             return new AppSettings(
                 watchDirectory,
                 importDirectory,
@@ -70,7 +75,8 @@ namespace FileImportMonitor
                 validFileMasks,
                 fileStabilizationTimeoutSeconds,
                 processExistingFilesOnStartup,
-                logFilePath);
+                logFilePath,
+                runDurationMinutes);
         }
 
         /// <summary>

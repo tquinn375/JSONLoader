@@ -18,6 +18,8 @@ into `D:\IMPORT` (configurable).
    exists there, a timestamp is appended so nothing is overwritten.
 4. If the file name matches no mask, it's left in place (or moved to
    `RejectedDirectory`, if one is configured) and logged as a warning.
+5. The app runs for `RunDurationMinutes` (default 120 = 2 hours) and then
+   exits cleanly on its own — see "Running as a scheduled task" below.
 
 All activity is written to the console and to a rolling log file
 (`Logs\FileImportMonitor.log` by default).
@@ -55,11 +57,40 @@ FileImportMonitor/
      finish being written before giving up on it (default 30s).
    - `ProcessExistingFilesOnStartup` — set to `false` if you don't want
      files already sitting in `WatchDirectory` processed on startup.
+   - `RunDurationMinutes` — how many minutes the app watches before
+     exiting on its own (default `120`). Ctrl+C still stops it sooner for
+     interactive use.
 
 3. **Build and run.** The console window stays open, watching the
-   directory; press Ctrl+C to stop it. For unattended use, run it under
-   Task Scheduler (on logon, with restart-on-failure) or wrap it as a
-   Windows Service.
+   directory, until either `RunDurationMinutes` elapses or you press
+   Ctrl+C.
+
+## Running as a scheduled task
+
+The app is designed to be launched repeatedly by Windows Task Scheduler
+rather than run once and left open:
+
+- Each run watches for `RunDurationMinutes` (2 hours by default) and then
+  exits with code `0`.
+- On startup it takes a system-wide named mutex
+  (`Global\FileImportMonitor_SingleInstance`). If another copy already
+  holds it — e.g. the previous scheduled run is still inside its 2-hour
+  window when the next one fires — the new instance logs a warning and
+  exits immediately with code `2`, without touching the watch directory.
+  Only one instance is ever doing work at a time.
+
+Suggested Task Scheduler setup: trigger every 2 hours (matching
+`RunDurationMinutes`, or shorter — the mutex check makes an overlapping
+trigger a safe no-op rather than a second monitor), "Run whether user is
+logged on or not," and *do not* check "If the task is already running,
+then the following rule applies" as a substitute for this — the app's own
+mutex check is what actually guarantees a single instance; Task
+Scheduler's own instance-handling setting can still be left at its default
+since the app self-terminates duplicates either way.
+
+Exit codes: `0` normal completion (duration elapsed or Ctrl+C), `1`
+configuration or unhandled error, `2` another instance was already
+running.
 
 ## Notes
 

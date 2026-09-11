@@ -6,6 +6,18 @@ namespace FileImportMonitor
 {
     internal static class Program
     {
+        /// <summary>
+        /// "Global\" makes this visible across Terminal Server / RDP
+        /// sessions (e.g. a Task Scheduler run in Session 0 vs. someone
+        /// running the exe by hand in their own session) so two copies
+        /// never run at once regardless of how each was launched.
+        /// </summary>
+        private const string SingleInstanceMutexName = @"Global\FileImportMonitor_SingleInstance";
+
+        private const int ExitOk = 0;
+        private const int ExitError = 1;
+        private const int ExitAlreadyRunning = 2;
+
         private static int Main()
         {
             AppSettings settings;
@@ -16,17 +28,58 @@ namespace FileImportMonitor
             catch (Exception ex)
             {
                 Console.Error.WriteLine($"Configuration error: {ex.Message}");
-                return 1;
+                return ExitError;
             }
 
             var logger = new Logger(settings.LogFilePath);
 
+            using (Mutex singleInstanceMutex = CreateSingleInstanceMutex(out bool createdNew))
+            {
+                if (!createdNew)
+                {
+                    logger.Warn("Another instance of FileImportMonitor is already running; exiting immediately.");
+                    return ExitAlreadyRunning;
+                }
+
+                try
+                {
+                    return Run(settings, logger);
+                }
+                finally
+                {
+                    singleInstanceMutex.ReleaseMutex();
+                }
+            }
+        }
+
+        /// <summary>
+        /// Creates (and, per Mutex semantics, atomically takes ownership
+        /// of) the system-wide single-instance mutex. Falls back to a
+        /// session-local mutex if the account lacks rights to create
+        /// "Global\" kernel objects, which still prevents duplicate runs
+        /// within the same Task Scheduler / user session.
+        /// </summary>
+        private static Mutex CreateSingleInstanceMutex(out bool createdNew)
+        {
+            try
+            {
+                return new Mutex(initiallyOwned: true, SingleInstanceMutexName, out createdNew);
+            }
+            catch (UnauthorizedAccessException)
+            {
+                string localName = SingleInstanceMutexName.Substring("Global\\".Length);
+                return new Mutex(initiallyOwned: true, localName, out createdNew);
+            }
+        }
+
+        private static int Run(AppSettings settings, Logger logger)
+        {
             try
             {
                 if (!Directory.Exists(settings.WatchDirectory))
                 {
                     logger.Error($"Watch directory '{settings.WatchDirectory}' does not exist. Create it or update App.config, then restart.");
-                    return 1;
+                    return ExitError;
                 }
 
                 if (!Directory.Exists(settings.ImportDirectory))
@@ -63,19 +116,24 @@ namespace FileImportMonitor
                         exitSignal.Set();
                     };
 
-                    Console.WriteLine("FileImportMonitor is running. Press Ctrl+C to exit.");
-                    exitSignal.Wait();
+                    var runDuration = TimeSpan.FromMinutes(settings.RunDurationMinutes);
+                    Console.WriteLine($"FileImportMonitor is running; it will stop automatically after {settings.RunDurationMinutes} minute(s), or press Ctrl+C to exit sooner.");
+                    bool signaled = exitSignal.Wait(runDuration);
+                    if (!signaled)
+                    {
+                        logger.Info($"Configured run duration ({settings.RunDurationMinutes} minute(s)) elapsed; shutting down.");
+                    }
 
                     monitor.Stop();
                 }
 
                 logger.Info("FileImportMonitor stopped.");
-                return 0;
+                return ExitOk;
             }
             catch (Exception ex)
             {
                 logger.Error("Unhandled exception; FileImportMonitor is shutting down.", ex);
-                return 1;
+                return ExitError;
             }
         }
 
