@@ -12,8 +12,8 @@ create or replace Package         LOCAL_PROXCONVERT_P
 as
 -- Set to 1 by LOCAL_PROXCONVERT_C while it deletes a calculated row because its
 -- source row was deleted; the deleted calculated row is then not "put back".
-v_deletea1000prox number := 0;          -- 060 -> 061 pair (name kept for compatibility)
-v_delete065prox   number := 0;          -- 064 -> 065 pair
+v_deletea1000prox number := 0;          -- guards 061 (calculated from 060 or 064)
+v_delete065prox   number := 0;          -- no longer used: 065 was retired 10-14-2026
 
 -- Legacy members, no longer used by the triggers. Kept so that any other
 -- object that references them still compiles.
