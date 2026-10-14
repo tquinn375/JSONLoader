@@ -87,11 +87,14 @@ COMPOUND TRIGGER
         -- source-delete handling; their calculated rows are listed too in case one
         -- exists without its source row.
         PROCEDURE remove_other_pairs(c IN t_change) IS
+                -- trigger-local functions cannot be called from SQL, so resolve them first
+                v_src  keymappinginfo.mediatype%TYPE := source_type(c.mediatype);
+                v_calc keymappinginfo.mediatype%TYPE := calc_type(c.mediatype);
         BEGIN
                 DELETE keymappinginfo
                  WHERE patronid = c.patronid
                    AND mediatype IN ('060', '061', '064', '065')
-                   AND mediatype NOT IN (source_type(c.mediatype), calc_type(c.mediatype));
+                   AND mediatype NOT IN (v_src, v_calc);
         END remove_other_pairs;
 
         -- source row inserted/updated: create or update its calculated row
