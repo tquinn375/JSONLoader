@@ -16,14 +16,17 @@ deleted on its own is put back while its source row still exists.
 The old design kept a list of pending changes in package variables
 (`LOCAL_PROXCONVERT_P.v_keymappinginfo` / `v_NumEntries`). Those variables last for the
 whole database session. If a statement failed after the row trigger had recorded an
-entry, or if the statement trigger's own DML fired the triggers again, entries were left
-behind or overwritten. The next statement in the same session then replayed the stale
-060/061 entries. That is how 061 came back when only 064 was inserted.
+entry, or if the statement trigger's own DML fired the triggers again, entries could be
+left behind or overwritten, and a later statement in the same session could replay them.
 
 `LOCAL_PROXCONVERT_C` is a compound trigger. Its change list lives inside the trigger, so
 every statement starts with an empty list, and Oracle discards the list when the
 statement ends or fails. `LOCAL_PROXCONVERT_P` now holds only the cascade-delete guards,
 one per pair.
+
+Note: the 060/061 rows that reappeared after deleting all four media types and adding
+064 were not caused by the triggers. An external feed was restoring the values it
+considered correct. Check that feed before changing these media types by hand.
 
 ## Files
 
