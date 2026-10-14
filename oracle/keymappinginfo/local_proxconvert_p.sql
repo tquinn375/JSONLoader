@@ -6,8 +6,8 @@
 -- gives every statement its own private copy that is thrown away when the
 -- statement ends (or fails).
 --
--- What remains here are the cascade-delete guards, one per media type pair,
--- so the 060/061 pair and the 064/065 pair are handled independently.
+-- What remains here is the cascade-delete guard for 061, which is calculated
+-- from either 060 or 064.
 create or replace Package         LOCAL_PROXCONVERT_P
 as
 -- Set to 1 by LOCAL_PROXCONVERT_C while it deletes a calculated row because its
