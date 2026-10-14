@@ -7,8 +7,9 @@ Maintains calculated media types on `DIEBOLD.KEYMAPPINGINFO`:
 | 060    | 061        | `A1000PROXCVT`          |
 | 064    | 065        | `LOCAL_A1000PROXCVT_16` |
 
-Each pair is handled on its own. Inserting or updating a source row creates or updates its
-calculated row. Deleting a source row also deletes its calculated row. A calculated row
+Only one pair may exist per patron: adding 060 removes that patron's 064/065 rows, and
+adding 064 removes their 060/061 rows. Inserting or updating a source row creates or
+updates its calculated row. Deleting a source row also deletes its calculated row. A calculated row
 deleted on its own is put back while its source row still exists.
 
 ## Why the change

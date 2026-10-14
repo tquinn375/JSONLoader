@@ -1,3 +1,5 @@
+-- update 10-14-2026: only one pair may exist per patron. Adding 060 removes 064/065,
+-- adding 064 removes 060/061.
 -- update 10-12-2026: replaces LOCAL_PROXCONVERT_TRIGGER_R (before each row) and
 -- LOCAL_PROXCONVERT_S (after statement) with a single compound trigger.
 --
@@ -5,8 +7,10 @@
 --     060 -> 061   keyvalue = A1000PROXCVT(060 keyvalue)
 --     064 -> 065   keyvalue = LOCAL_A1000PROXCVT_16(064 keyvalue)
 --
--- Behaviour per pair (the two pairs never affect each other):
---   * insert/update of a source row  -> create or update its calculated row
+-- Behaviour per pair:
+--   * insert of a source row          -> delete every other managed pair for that patron,
+--                                       then create its calculated row
+--   * update of a source row          -> create or update its calculated row
 --   * delete of a source row         -> delete its calculated row as well
 --   * delete of a calculated row     -> put it back if its source row still exists
 --
@@ -19,7 +23,7 @@ ON DIEBOLD.KEYMAPPINGINFO
 COMPOUND TRIGGER
 
         TYPE t_change IS RECORD (
-                action    CHAR(1),                              -- 'U' = insert/update, 'D' = delete
+                action    CHAR(1),                              -- 'I' = added, 'U' = updated, 'D' = deleted
                 patronid  keymappinginfo.patronid%TYPE,
                 keyvalue  keymappinginfo.keyvalue%TYPE,
                 mediatype keymappinginfo.mediatype%TYPE
@@ -78,11 +82,26 @@ COMPOUND TRIGGER
                 g_changes(i).mediatype := p_mediatype;
         END remember;
 
+        -- source row added: only one pair may exist per patron, so remove the others.
+        -- Deleting their source rows fires this trigger again, which runs the normal
+        -- source-delete handling; their calculated rows are listed too in case one
+        -- exists without its source row.
+        PROCEDURE remove_other_pairs(c IN t_change) IS
+        BEGIN
+                DELETE keymappinginfo
+                 WHERE patronid = c.patronid
+                   AND mediatype IN ('060', '061', '064', '065')
+                   AND mediatype NOT IN (source_type(c.mediatype), calc_type(c.mediatype));
+        END remove_other_pairs;
+
         -- source row inserted/updated: create or update its calculated row
         PROCEDURE apply_upsert(c IN t_change) IS
                 v_calc   keymappinginfo.mediatype%TYPE := calc_type(c.mediatype);
                 v_newkey keymappinginfo.keyvalue%TYPE  := convert_key(v_calc, c.keyvalue);
         BEGIN
+                IF c.action = 'I' THEN
+                        remove_other_pairs(c);
+                END IF;
                 UPDATE keymappinginfo SET keyvalue = v_newkey
                  WHERE patronid = c.patronid AND mediatype = v_calc;
                 IF SQL%ROWCOUNT = 0 THEN
@@ -132,14 +151,19 @@ BEGIN
                         remember('D', :old.patronid, :old.keyvalue, :old.mediatype);
                 END IF;
         ELSIF :new.mediatype IN ('060', '064') THEN
-                remember('U', :new.patronid, :new.keyvalue, :new.mediatype);
+                -- an update that changes a row into 060/064 counts as adding it
+                IF INSERTING OR NVL(:old.mediatype, '-') <> :new.mediatype THEN
+                        remember('I', :new.patronid, :new.keyvalue, :new.mediatype);
+                ELSE
+                        remember('U', :new.patronid, :new.keyvalue, :new.mediatype);
+                END IF;
         END IF;
 END AFTER EACH ROW;
 
 AFTER STATEMENT IS
 BEGIN
         FOR i IN REVERSE 1 .. g_changes.COUNT LOOP
-                IF g_changes(i).action = 'U' THEN
+                IF g_changes(i).action IN ('I', 'U') THEN
                         apply_upsert(g_changes(i));
                 ELSE
                         apply_delete(g_changes(i));
